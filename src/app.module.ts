@@ -32,7 +32,6 @@ import { PhotosModule } from './photos/photos.module';
         process.env.NODE_ENV === 'production'
           ? ['.env.production', '.env']
           : ['.env.local', '.env'],
-    
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -45,7 +44,10 @@ import { PhotosModule } from './photos/photos.module';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        ssl: configService.get<string>('DB_SSL', 'false') === 'true',
+        ssl:
+          configService.get<string>('DB_SSL', 'false') === 'true'
+            ? { rejectUnauthorized: false }
+            : false,
         synchronize: false,
       }),
     }),

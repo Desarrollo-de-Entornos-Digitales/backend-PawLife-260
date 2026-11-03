@@ -28,7 +28,21 @@ export class FindPetsQueryDto {
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
-  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
+  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
   @IsBoolean({ message: 'active debe ser true o false.' })
   active?: boolean;
+
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'La página debe ser un número entero.' })
+  @Min(1, { message: 'La página debe ser mayor que cero.' })
+  page?: number;
+
+  @ApiPropertyOptional({ example: 9, default: 9 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'El límite debe ser un número entero.' })
+  @Min(1, { message: 'El límite debe ser mayor que cero.' })
+  limit?: number;
 }

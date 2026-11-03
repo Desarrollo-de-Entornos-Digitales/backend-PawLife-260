@@ -159,8 +159,8 @@
           "name": "Listar mascotas",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/pets?ownerId={{ownerId}}&species=cat&active=true", "host": ["{{baseUrl}}"], "path": ["pets"], "query": [{ "key": "ownerId", "value": "{{ownerId}}" }, { "key": "species", "value": "cat" }, { "key": "active", "value": "true" }] },
-            "description": "Requiere READ_PET. Filtros opcionales: name, species, sex, ownerId, active. Incluye URLs públicas en data[].photos[].url."
+            "url": { "raw": "{{baseUrl}}/pets?page=1&limit=9&ownerId={{ownerId}}&species=cat&active=true", "host": ["{{baseUrl}}"], "path": ["pets"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "9" }, { "key": "ownerId", "value": "{{ownerId}}" }, { "key": "species", "value": "cat" }, { "key": "active", "value": "true" }] },
+            "description": "Requiere READ_PET. Paginaci�n con page (base 1) y limit. Filtros opcionales: name, species, sex, ownerId, active. Devuelve { items, meta: { page, limit, total, totalPages } }. Incluye URLs públicas en data[].photos[].url."
           },
           "response": []
         },

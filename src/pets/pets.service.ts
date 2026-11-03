@@ -45,18 +45,41 @@ export class PetsService {
     }
   }
 
-  findAll(filters: FindPetsQueryDto = {}) {
+  async findAll(filters: FindPetsQueryDto = {}, currentUser?: { sub: number; role: string }) {
+    const page = filters.page && filters.page > 0 ? filters.page : 1;
+    const limit = filters.limit && filters.limit > 0 ? filters.limit : 9;
+    const skip = (page - 1) * limit;
+
     const where: Record<string, unknown> = { active: filters.active ?? true };
     if (filters.name) where.name = ILike(`%${filters.name}%`);
     if (filters.species) where.species = filters.species;
     if (filters.sex) where.sex = filters.sex;
-    if (filters.ownerId) where.owner = { id: filters.ownerId };
 
-    return this.dataSource.getRepository(Pet).find({
+    if (currentUser?.role === 'owner') {
+      where.owner = { id: currentUser.sub };
+    } else if (filters.ownerId) {
+      where.owner = { id: filters.ownerId };
+    }
+
+    const [items, total] = await this.dataSource.getRepository(Pet).findAndCount({
       where,
       relations: { owner: true, photos: true },
       order: { id: 'ASC' },
+      skip,
+      take: limit,
     });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
   }
 
   findOne(id: number) {

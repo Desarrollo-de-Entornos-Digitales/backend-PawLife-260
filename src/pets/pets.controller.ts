@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import {
   BadRequestException,
   Body,
@@ -13,6 +13,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
   UseInterceptors,
   UploadedFiles,
@@ -36,7 +37,7 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { AppPermission } from '../auth/enums/app-permission.enum';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { ensureUploadDirectory, getUploadDirectory } from '../common/upload-directory';
+import { ensureUploadDirectory } from '../common/upload-directory';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
 import { FindPetsQueryDto } from './dto/find-pets-query.dto';
@@ -113,10 +114,14 @@ export class PetsController {
 
   @Get()
   @RequirePermissions(AppPermission.READ_PET)
-  @ApiOperation({ summary: 'Obtener todas las mascotas' })
-  @ApiOkResponse({ description: 'Lista de mascotas.' })
-  async findAll(@Query() filters: FindPetsQueryDto) {
-    return this.success(await this.petsService.findAll(filters));
+  @ApiOperation({ summary: 'Obtener todas las mascotas con filtros y paginación' })
+  @ApiOkResponse({ description: 'Lista paginada de mascotas.' })
+  async findAll(
+    @Query() filters: FindPetsQueryDto,
+    @Req() req: { user?: { sub: number; email: string; role: string; permissions: string[] } },
+  ) {
+    const result = await this.petsService.findAll(filters, req?.user);
+    return this.successPaginated(result);
   }
 
   @Get(':id')
@@ -171,6 +176,19 @@ export class PetsController {
         : null;
 
     return { status: 'ok', data: safeData };
+  }
+
+  private successPaginated(data: {
+    items: Pet[];
+    meta: { page: number; limit: number; total: number; totalPages: number };
+  }) {
+    return {
+      status: 'ok',
+      data: {
+        items: data.items.map((pet) => this.withoutOwnerPassword(pet)),
+        meta: data.meta,
+      },
+    };
   }
 
   private withoutOwnerPassword(pet: Pet) {
