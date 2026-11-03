@@ -44,7 +44,7 @@ import { PhotosModule } from './photos/photos.module';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        autoLoadEntities: true,
         ssl: configService.get<string>('DB_SSL', 'false') === 'true',
         synchronize: true,
       }),
