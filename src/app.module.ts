@@ -38,7 +38,7 @@ import { PhotosModule } from './photos/photos.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
+        type: 'postgres' as const,
         host: configService.get<string>('DB_HOST'),
         port: Number(configService.get<string>('DB_PORT', '5432')),
         username: configService.get<string>('DB_USERNAME'),
@@ -46,7 +46,7 @@ import { PhotosModule } from './photos/photos.module';
         database: configService.get<string>('DB_DATABASE'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         ssl: configService.get<string>('DB_SSL', 'false') === 'true',
-        synchronize: false,
+        synchronize: true,
       }),
     }),
   ],
