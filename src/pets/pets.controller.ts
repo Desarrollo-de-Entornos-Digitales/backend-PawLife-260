@@ -1,5 +1,6 @@
+
 import { randomUUID } from 'node:crypto';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import {
   BadRequestException,
   Body,
@@ -13,6 +14,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
   UseInterceptors,
   UploadedFiles,
@@ -36,7 +38,7 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { AppPermission } from '../auth/enums/app-permission.enum';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { ensureUploadDirectory, getUploadDirectory } from '../common/upload-directory';
+import { ensureUploadDirectory } from '../common/upload-directory';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
 import { FindPetsQueryDto } from './dto/find-pets-query.dto';
@@ -51,6 +53,15 @@ interface UploadFile {
 
 type UploadCallback = (error: Error | null, value: string) => void;
 
+interface AuthenticatedRequest {
+  user: {
+    sub: number;
+    email: string;
+    role: string;
+    permissions: string[];
+  };
+}
+
 const { diskStorage } = require('multer');
 
 const imageExtensions: Record<string, string> = {
@@ -62,14 +73,22 @@ const imageExtensions: Record<string, string> = {
 
 const UploadPhotos = FilesInterceptor('photos', 10, {
   storage: diskStorage({
-    destination: (_request: unknown, _file: unknown, callback: UploadCallback) => {
+    destination: (
+      _request: unknown,
+      _file: unknown,
+      callback: UploadCallback,
+    ) => {
       try {
         callback(null, ensureUploadDirectory());
       } catch (error) {
         callback(error as Error, '');
       }
     },
-    filename: (_request: unknown, file: Pick<UploadFile, 'mimetype'>, callback: UploadCallback) => {
+    filename: (
+      _request: unknown,
+      file: Pick<UploadFile, 'mimetype'>,
+      callback: UploadCallback,
+    ) => {
       callback(null, `${randomUUID()}${imageExtensions[file.mimetype]}`);
     },
   }),
@@ -79,8 +98,12 @@ const UploadPhotos = FilesInterceptor('photos', 10, {
     callback: (error: Error | null, acceptFile: boolean) => void,
   ) => {
     if (!imageExtensions[file.mimetype]) {
-      return callback(new BadRequestException('Solo se permiten imágenes'), false);
+      return callback(
+        new BadRequestException('Solo se permiten imágenes'),
+        false,
+      );
     }
+
     callback(null, true);
   },
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -88,12 +111,24 @@ const UploadPhotos = FilesInterceptor('photos', 10, {
 
 @ApiTags('Mascotas')
 @ApiBearerAuth()
-@ApiUnauthorizedResponse({ description: 'Token ausente, inválido o expirado.' })
-@ApiForbiddenResponse({ description: 'Falta el permiso requerido.' })
+@ApiUnauthorizedResponse({
+  description: 'Token ausente, inválido o expirado.',
+})
+@ApiForbiddenResponse({
+  description: 'Falta el permiso requerido.',
+})
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('pets')
 export class PetsController {
   constructor(private readonly petsService: PetsService) {}
+
+  // Obtiene el ID del propietario autenticado.
+  // Para otros roles devuelve undefined.
+  private authenticatedOwnerId(req: AuthenticatedRequest) {
+    return req.user.role?.toLowerCase() === 'owner'
+      ? req.user.sub
+      : undefined;
+  }
 
   @Post()
   @RequirePermissions(AppPermission.CREATE_PET)
@@ -101,22 +136,41 @@ export class PetsController {
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: petFormSchema(true) })
   @ApiCreatedResponse({ description: 'Mascota creada.' })
-  @ApiBadRequestResponse({ description: 'Los datos enviados no son válidos.' })
-  @ApiNotFoundResponse({ description: 'Propietario no encontrado.' })
+  @ApiBadRequestResponse({
+    description: 'Los datos enviados no son válidos.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Propietario no encontrado.',
+  })
   @UseInterceptors(UploadPhotos)
   async create(
+    @Req() req: AuthenticatedRequest,
     @Body() input: CreatePetDto,
     @UploadedFiles() files: UploadFile[] = [],
   ) {
-    return this.success(await this.petsService.create(input, this.photoData(files)));
+    return this.success(
+      await this.petsService.create(
+        input,
+        this.photoData(files),
+        this.authenticatedOwnerId(req),
+      ),
+    );
   }
 
   @Get()
   @RequirePermissions(AppPermission.READ_PET)
-  @ApiOperation({ summary: 'Obtener todas las mascotas' })
+  @ApiOperation({ summary: 'Obtener las mascotas' })
   @ApiOkResponse({ description: 'Lista de mascotas.' })
-  async findAll(@Query() filters: FindPetsQueryDto) {
-    return this.success(await this.petsService.findAll(filters));
+  async findAll(
+    @Req() req: AuthenticatedRequest,
+    @Query() filters: FindPetsQueryDto,
+  ) {
+    return this.success(
+      await this.petsService.findAll(
+        filters,
+        this.authenticatedOwnerId(req),
+      ),
+    );
   }
 
   @Get(':id')
@@ -124,10 +178,22 @@ export class PetsController {
   @ApiOperation({ summary: 'Obtener una mascota por ID' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Mascota encontrada.' })
-  @ApiBadRequestResponse({ description: 'El ID debe ser un número entero.' })
-  @ApiNotFoundResponse({ description: 'Mascota no encontrada.' })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.success(await this.petsService.findOne(id));
+  @ApiBadRequestResponse({
+    description: 'El ID debe ser un número entero.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Mascota no encontrada.',
+  })
+  async findOne(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.success(
+      await this.petsService.findOne(
+        id,
+        this.authenticatedOwnerId(req),
+      ),
+    );
   }
 
   @Patch(':id')
@@ -137,16 +203,26 @@ export class PetsController {
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: petFormSchema(false) })
   @ApiOkResponse({ description: 'Mascota actualizada.' })
-  @ApiBadRequestResponse({ description: 'El ID o los datos no son válidos.' })
-  @ApiNotFoundResponse({ description: 'Mascota o propietario no encontrado.' })
+  @ApiBadRequestResponse({
+    description: 'El ID o los datos no son válidos.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Mascota o propietario no encontrado.',
+  })
   @UseInterceptors(UploadPhotos)
   async update(
+    @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
     @Body() input: UpdatePetDto,
     @UploadedFiles() files: UploadFile[] = [],
   ) {
     return this.success(
-      await this.petsService.update(id, input, this.photoData(files)),
+      await this.petsService.update(
+        id,
+        input,
+        this.photoData(files),
+        this.authenticatedOwnerId(req),
+      ),
     );
   }
 
@@ -155,11 +231,24 @@ export class PetsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Eliminar una mascota' })
   @ApiParam({ name: 'id', type: Number })
-  @ApiOkResponse({ schema: { example: { status: 'ok', data: null } } })
-  @ApiBadRequestResponse({ description: 'El ID debe ser un número entero.' })
-  @ApiNotFoundResponse({ description: 'Mascota no encontrada.' })
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    await this.petsService.remove(id);
+  @ApiOkResponse({
+    schema: { example: { status: 'ok', data: null } },
+  })
+  @ApiBadRequestResponse({
+    description: 'El ID debe ser un número entero.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Mascota no encontrada.',
+  })
+  async remove(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    await this.petsService.remove(
+      id,
+      this.authenticatedOwnerId(req),
+    );
+
     return this.success(null);
   }
 
@@ -174,7 +263,10 @@ export class PetsController {
   }
 
   private withoutOwnerPassword(pet: Pet) {
-    const owner = pet.owner ? this.withoutPassword(pet.owner) : pet.owner;
+    const owner = pet.owner
+      ? this.withoutPassword(pet.owner)
+      : pet.owner;
+
     const photos = pet.photos?.map(({ filename, ...photo }) => ({
       ...photo,
       url: `/uploads/${encodeURIComponent(basename(filename))}`,
@@ -198,13 +290,24 @@ export class PetsController {
 function petFormSchema(requirePetFields: boolean) {
   return {
     type: 'object' as const,
-    required: requirePetFields ? ['name', 'species', 'ownerId'] : undefined,
+    required: requirePetFields ? ['name', 'species'] : undefined,
     properties: {
       name: { type: 'string', maxLength: 80 },
-      species: { type: 'string', enum: Object.values(PetSpecies) },
+      species: {
+        type: 'string',
+        enum: Object.values(PetSpecies),
+      },
       breed: { type: 'string', nullable: true },
-      sex: { type: 'string', enum: Object.values(PetSex), nullable: true },
-      birthDate: { type: 'string', format: 'date', nullable: true },
+      sex: {
+        type: 'string',
+        enum: Object.values(PetSex),
+        nullable: true,
+      },
+      birthDate: {
+        type: 'string',
+        format: 'date',
+        nullable: true,
+      },
       active: { type: 'boolean' },
       ownerId: { type: 'integer' },
       photos: {
